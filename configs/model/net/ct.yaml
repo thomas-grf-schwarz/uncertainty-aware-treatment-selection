@@ -1,0 +1,10 @@
+_target_: src.models.components.ct.CausalTransformer
+covariate_size: ???
+treatment_size: ???
+outcome_size: ???
+hidden_size: 64
+num_layers: 1
+num_heads: 4
+p_dropout: 0.2
+l_max: 15
+alpha: 0.0

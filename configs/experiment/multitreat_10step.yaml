@@ -1,0 +1,73 @@
+# @package _global_
+
+# to execute this experiment run:
+# python multitreat.py experiment=multitreat
+
+defaults:
+  - /model@models: multi
+  - override /data: dynamics
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+tags: ["multi", "multi"]
+
+seed: 12345
+
+trainer:
+  min_epochs: 10
+  max_epochs: 100
+  gradient_clip_val: 0.5
+
+ckpt_paths: null
+  # - ${paths.log_dir}/train/runs/2024-06-18_18-46-17/checkpoints/last.ckpt
+  # - ${paths.log_dir}/train/runs/2024-06-18_18-47-48/checkpoints/last.ckpt
+  # - ${paths.log_dir}/train/runs/2024-06-18_18-51-55/checkpoints/last.ckpt
+  # - ${paths.log_dir}/train/runs/2024-06-20_12-40-07/checkpoints/last.ckpt
+
+models:
+  crn:
+    _target_: src.models.sampled_uncertainty_module.SampledUncertaintyModule
+    net:
+      covariate_size: ${data.train_dataset.covariate_size}
+      treatment_size: ${data.train_dataset.treatment_size}
+      outcome_size: ${data.train_dataset.outcome_size}
+  ct:
+    _target_: src.models.sampled_uncertainty_module.SampledUncertaintyModule
+    net:
+      covariate_size: ${data.train_dataset.covariate_size}
+      treatment_size: ${data.train_dataset.treatment_size}
+      outcome_size: ${data.train_dataset.outcome_size}
+  bncde:
+    covariate_size: ${data.train_dataset.covariate_size}
+    treatment_size: ${data.train_dataset.treatment_size}
+    outcome_size: ${data.train_dataset.outcome_size}
+  cfode:
+    _target_: src.models.sampled_uncertainty_module.SampledUncertaintyModule
+    net:
+      covariate_size: ${data.train_dataset.covariate_size}
+      treatment_size: ${data.train_dataset.treatment_size}
+      outcome_size: ${data.train_dataset.outcome_size}
+data:
+  batch_size: 128
+  train_dataset: 
+    t_horizon: 10
+  val_dataset: 
+    t_horizon: 10
+  test_dataset: 
+    t_horizon: 10
+logger:
+  wandb:
+    group: "treatment"
+    offline: false
+
+treat:
+  uncertainty_weights: [0.0, 0.0001, 0.001, 0.01, 0.0625, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0]
+  n_replicates: 6
+  replicate_type: 'instance'
+  mse_weight: 0.02
+  clamp_max: 8
+  clamp_slope: 0.01
+  n_iter: 35
+  learning_rate: 0.1
+  optimizer: AdamW

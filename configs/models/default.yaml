@@ -1,0 +1,6 @@
+
+defaults:
+  - /model/ct
+  - /model/crn
+  - /model/bncde
+  - /model/cfode
