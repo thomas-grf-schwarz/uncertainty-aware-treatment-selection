@@ -51,7 +51,8 @@ class DynamicsDataset(Dataset):
         self.noise_std = noise_st
 
         if self.simulate_online:
-            assert not do_normalize, 'normalize not supported for simulate_online'
+            assert not do_normalize, """normalize not supported 
+                                        for simulate_online"""
 
         else:
             self.data = []
@@ -137,7 +138,7 @@ class DynamicsDataset(Dataset):
 
             treatment_dose = self.sample_with_confounding(treatment_dose)
 
-            t_reset = t_split-t_split.min()
+            t_reset = t_split - t_split.min()
 
             state = self.simulate_step(
                 initial_state=initial_state,
