@@ -7,6 +7,7 @@ simulate_online: false
 t_horizon: 10
 t_end: 30
 noise_st: 0.0
+alpha: 1.0
 dynamics:
   _target_: src.data.components.covid_dynamics.CovidDynamics
   params:

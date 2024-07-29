@@ -65,9 +65,9 @@ class CRN(nn.Module):
         # Encoder components
         input_size = covariate_size + treatment_size + outcome_size
         self.encoder_rnn = nn.GRU(
-            input_size,
-            hidden_size,
-            num_layers,
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
             batch_first=True
             )
 

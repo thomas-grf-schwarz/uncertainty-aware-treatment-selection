@@ -108,10 +108,9 @@ def select_treatment(
     target, 
     objective, 
     constraints, 
-    optimizer_cls, 
+    optimizer,
     optimization_loop, 
     n_iter=100, 
-    **optimizer_kwargs
     ):
     # freeze model parameters and wrap compute uncertainty with constraint
     compute_uncertainty = freeze_parameters(model).compute_uncertainty
@@ -128,7 +127,7 @@ def select_treatment(
     instance.pop('initial_state')
 
     # initialize optimizer
-    optimizer = optimizer_cls([treatments], **optimizer_kwargs)
+    optimizer = optimizer(params=[treatments])
 
     # run the optimization loop
     out = optimization_loop(

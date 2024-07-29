@@ -109,7 +109,7 @@ def plot_uncertainty_penalty(
     if fig is None:
         fig, ax = plt.subplots(figsize=(10, 6))
 
-    ax.set_title(f'Effect of uncertainty penalty on reliable treatment selection: {title}')
+    # ax.set_title(f'Effect of uncertainty penalty on reliable treatment selection: {title}')
     ax.plot(uncertainty_weights, mean_rmses, '-o', label=label.upper())
     color = ax.get_lines()[-1].get_color()
     ax.plot(uncertainty_weights, rmses.T, alpha=0.3, color=color)

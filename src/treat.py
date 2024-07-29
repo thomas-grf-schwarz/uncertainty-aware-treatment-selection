@@ -12,17 +12,15 @@ from functools import partial
 import copy
 import wandb
 from tqdm import tqdm
+import pandas as pd
+import pathlib as plb
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 from src.utils import (
     RankedLogger,
     extras,
-    get_metric_value,
-    instantiate_callbacks,
     instantiate_loggers,
-    log_hyperparameters,
-    task_wrapper,
 )
 
 from src.utils.objective import (
@@ -31,13 +29,7 @@ from src.utils.objective import (
     mse_objective,
 )
 
-from src.utils.constraints import (
-    leaky_clamp
-)
-
 from src.utils.treat import (
-    select_treatment,
-    sgdlike_loop,
     evaluate_treatment_selection,
     simulate_treatments,
 )
@@ -50,6 +42,7 @@ from src.utils.figures import (
 )
 
 from src.utils.loss import root_mean_square_error
+from src.train import train
 
 
 log = RankedLogger(__name__, rank_zero_only=True)
@@ -74,8 +67,8 @@ def treat(cfg: DictConfig, model_name) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info(f"loading model weights <{cfg.ckpt_path}>")
     model.load_state_dict(torch.load(cfg.ckpt_path)['state_dict'], strict=False)
 
-    log.info(f"Instantiating select_treatment <{cfg.select_treatment._target_}>")
-    select_treatment = hydra.utils.instantiate(cfg.select_treatment)
+    log.info(f"Instantiating select_treatment <{cfg.treat.select_treatment._target_}>")
+    select_treatment = hydra.utils.instantiate(cfg.treat.select_treatment)
 
     if cfg.get("logger"):
         log.info("Instantiating loggers...")
@@ -135,14 +128,17 @@ def treat(cfg: DictConfig, model_name) -> Tuple[Dict[str, Any], Dict[str, Any]]:
                 initial_state=present_state,
                 t_horizon=datamodule.data_val.t_horizon,
                 simulate_outcome=datamodule.data_val.simulate_outcome,
-                )[None, :]
-            target_outcome = torch.tensor(target_outcome, dtype=torch.float32)
+                )
+            target_outcome = torch.tensor(
+                data=target_outcome[None, :],
+                dtype=torch.float32
+                )
 
             # Specify the objective for treatment selection to minimize
             if weight == 0.0:
-                uncertainty_weight_ratio = 0.0
+                weight_ratio = 0.0
             else:
-                uncertainty_weight_ratio = weight / (cfg.treat.mse_weight + weight)
+                weight_ratio = weight / (cfg.treat.mse_weight + weight)
 
             if cfg.treat.mse_weight == 0.0:
                 mse_weight_ratio = 0.0
@@ -152,7 +148,7 @@ def treat(cfg: DictConfig, model_name) -> Tuple[Dict[str, Any], Dict[str, Any]]:
             uncertainty_mse_objective = partial(
                 composed_objective,
                 objectives={
-                    uncertainty_objective: uncertainty_weight_ratio,
+                    uncertainty_objective: weight_ratio,
                     mse_objective: mse_weight_ratio
                     }
                 )
@@ -196,6 +192,17 @@ def treat(cfg: DictConfig, model_name) -> Tuple[Dict[str, Any], Dict[str, Any]]:
                 )
             logger.experiment.log({"treatment_selection_plt": wandb.Image(fig2)})
 
+    # Compute uncertainty and error on the validation data
+    uncertainty = {}
+    uncertainty['rmses'] = []
+    uncertainty['vars'] = []
+    for instance in datamodule.data_val:
+        instance.pop('initial_state')
+        mu, var = model.compute_uncertainty(**instance)
+        rmse = root_mean_square_error(mu, instance['outcomes'])
+        uncertainty['rmses'].append(rmse)
+        uncertainty['vars'].append(var.squeeze().mean())
+
     object_dict = {
         'datamodule': datamodule,
         'model': model,
@@ -203,13 +210,14 @@ def treat(cfg: DictConfig, model_name) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     }
 
     metric_dict = {
-        'rmses': rmses
+        'rmses': rmses,
+        'uncertainty': uncertainty
     }
 
     return metric_dict, object_dict
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="multitreat.yaml")
+@hydra.main(version_base="1.3", config_path="../configs", config_name="treat.yaml")
 def main(cfg: DictConfig) -> Optional[float]:
     """Main entry point for treatment selection.
 
@@ -217,81 +225,103 @@ def main(cfg: DictConfig) -> Optional[float]:
     :return: Optional[float] with optimized metric value.
     """
 
-    fig3, ax3 = None, None
-    fig3, ax3 = None, None
-    fig4, ax4 = None, None
-    fig5, ax5 = None, None
-    fig6, ax6 = None, None
+    # apply extra utilities
+    extras(cfg)
 
-    for model_name in cfg.keys():
+    # train a model if no pretrained weights are provided
+    if cfg.get('ckpt_path') is None:
+        _, object_dict = train(cfg)
+        trainer = object_dict['trainer']
+        cfg.ckpt_path = trainer.checkpoint_callback.best_model_path
 
-        # apply extra utilities
-        extras(cfg[model_name])
+    # perform treatment selection
+    metric_dict, object_dict = treat(cfg, '')
 
-        # perform treatment selection
-        metric_dict, object_dict = treat(cfg[model_name], model_name)
+    # log uncertainty results
+    results_uncertainty = pd.DataFrame(
+        data=metric_dict['uncertainty'],
+    )
 
-        # log results
-        rmse_results = wandb.Table(
-            columns=cfg[model_name].uncertainty_weights,
-            data=metric_dict['rmses'],
+    object_dict['logger'].experiment.log(
+        {
+            'uncertainty': wandb.Table(
+                dataframe=results_uncertainty
             )
-        object_dict['logger'].experiment.log(
-            {"RMSE results": rmse_results}
-            )
+        }
+    )
 
-
-        fig3, ax3 = plot_uncertainty_penalty(
-            cfg[model_name].treat.uncertainty_weights, 
-            rmses['selection'], 
-            mean_rmses['selection'], 
-            std_rmses['selection'],
-            label=model_name,
-            title='selection',
-            fig=fig3, 
-            ax=ax3,
+    results_uncertainty.to_csv(
+        plb.Path(cfg.paths.output_dir) / 'uncertainty.csv',
+        index=False
         )
-        fig4, ax4 = plot_uncertainty_penalty(
-            cfg[model_name].treat.uncertainty_weights, 
-            rmses['counterfactual'], 
-            mean_rmses['counterfactual'], 
-            std_rmses['counterfactual'],
-            label=model_name,
-            title='counterfactual',
-            fig=fig4, 
-            ax=ax4,
-            )
 
-        fig5, ax5 = plot_uncertainty_penalty(
-            cfg[model_name].treat.uncertainty_weights, 
-            rmses['all'], 
-            mean_rmses['all'], 
-            std_rmses['all'],
-            label=model_name,
-            title='all',
-            fig=fig5, 
-            ax=ax5
-            )
+    # log treatment selection metrics
+    results_selection = pd.DataFrame(
+        columns=[str(x) for x in cfg.treat.uncertainty_weights],
+        data=[x.tolist() for x in metric_dict['rmses']['selection']]
+    )
 
-        fig6, ax6 = plot_rmse_vs_least_uncertain_samples(
-            dataset=object_dict['datamodule'].data_val,
-            compute_uncertainty=object_dict['model'].compute_uncertainty,
-            label=model_name,
-            fig=fig6, 
-            ax=ax6
-            )
+    results_counterfactual = pd.DataFrame(
+        columns=[str(x) for x in cfg.treat.uncertainty_weights],
+        data=[x.tolist() for x in metric_dict['rmses']['counterfactual']]
+    )
 
-        object_dict['logger'].experiment.log(
-            {"uncertainty_effect_plot_selection": wandb.Image(fig3)})
-        object_dict['logger'].experiment.log(
-            {"uncertainty_effect_plot_counterfactual": wandb.Image(fig4)})
-        object_dict['logger'].experiment.log(
-            {"uncertainty_effect_plot_all": wandb.Image(fig5)})
-        object_dict['logger'].experiment.log(
-            {"lowest_uncertainty_vs_rmse_plot": wandb.Image(fig6)})
+    results_all = pd.DataFrame(
+        columns=[str(x) for x in cfg.treat.uncertainty_weights],
+        data=[x.tolist() for x in metric_dict['rmses']['all']]
+    )
+
+    results_selection.to_csv(
+        plb.Path(cfg.paths.output_dir) / 'rmse_selection.csv',
+        index=False
+        )
+    results_counterfactual.to_csv(
+        plb.Path(cfg.paths.output_dir) / 'rmse_counterfactual.csv',
+        index=False
+        )
+    results_all.to_csv(
+        plb.Path(cfg.paths.output_dir) / 'rmse_all.csv',
+        index=False
+        )
+
+    object_dict['logger'].experiment.log(
+        {
+            'RMSE selection': wandb.Table(
+                dataframe=results_selection
+            )
+        }
+    )
+
+    object_dict['logger'].experiment.log(
+        {
+            'RMSE counterfactual': wandb.Table(
+                dataframe=results_counterfactual
+            )
+        }
+    )
+
+    object_dict['logger'].experiment.log(
+        {
+            'RMSE all': wandb.Table(
+                dataframe=results_all
+            )
+        }
+    )
+
+    fig, ax = plot_uncertainty_penalty(
+        cfg.treat.uncertainty_weights,
+        metric_dict['rmses']['all'],
+        metric_dict['rmses']['all'].mean(dim=0),
+        metric_dict['rmses']['all'].std(dim=0),
+        label='',
+        title='all'
+        )
+
+    object_dict['logger'].experiment.log(
+        {"uncertainty_effect_plot_selection": wandb.Image(fig)})
 
     return None
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

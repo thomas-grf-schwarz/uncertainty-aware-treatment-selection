@@ -1,5 +1,4 @@
 from typing import Any, Dict, Tuple
-from src.utils.treat import create_identical_batch
 from src.models.uncertainty_module import UncertaintyModule
 import torch
 from torch import nn
@@ -29,36 +28,21 @@ class EnsembleUncertaintyModule(UncertaintyModule):
         self.ensemble = nn.ModuleList()
         for i in range(ensemble_size):
             self.ensemble.append(copy.deepcopy(net))
-        self.ensemble.apply(self.weight_randperm)
+        self.ensemble.apply(self.weight_reset)
         self.test_parameters(self.ensemble)
-
-    def weight_randperm(self, m):
-        for p in m.parameters():
-            flattened = p.data.flatten()
-            permuted = flattened[torch.randperm(flattened.size(0))]
-            setattr(p, 'data', permuted)
     
     def weight_reset(self, m):
         # https://stackoverflow.com/questions/63627997/reset-parameters-of-a-neural-network-in-pytorch
         reset_parameters = getattr(m, "reset_parameters", None)
         if callable(reset_parameters):
             m.reset_parameters()
-            print(f'resetting {m}')
 
     def test_parameters(self, ensemble):
         for i in range(1, len(ensemble)):
             for p0, pi in zip(ensemble[0].parameters(), ensemble[i].parameters()):
                 if pi.numel() > 1:  # exclude biases
-                    assert not (p0 == pi).all(), 'The ensemble shares parameters'
-
-    def reinit_parameters(self, net):
-        for m in net.modules():
-            if hasattr(m, 'reset_parameters'):
-                print(f'resetting: \n {m}...')
-                m.reset_parameters()
-            else:
-                print(f'failed to reset: \n {m}')
-        return net
+                    assert not (p0 == pi).all(), """The ensemble shares 
+                                                    parameters"""
 
     def on_train_batch_start(
             self,

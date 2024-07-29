@@ -97,7 +97,7 @@ class CardioVascularDynamics(Dynamics):
         initial_pv = (np.random.rand() * (max_pv - min_pv) + min_pv) / 10.0
         initial_s = (np.random.rand() * (max_s - min_s) + min_s)
 
-        initial_dose = 2.5 + np.random.randn()
+        initial_dose = np.random.rand()
 
         initial_state = np.array([
             initial_pa, 
