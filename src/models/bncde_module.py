@@ -232,7 +232,8 @@ class BNCDEModule(LightningModule):
             interpolation_method='linear',
             learning_rate=1e-3,
             method='euler',
-            coverage_metric_confidence=0.95
+            coverage_metric_confidence=0.95,
+            visualize=True,
             ):
         super().__init__()
         self.noise_type = "diagonal"  # required
@@ -243,6 +244,7 @@ class BNCDEModule(LightningModule):
         self.intensity_weighting = intensity_weighting
 
         self.outcome_loss = nn.MSELoss()
+        self.visualize = visualize
 
         # Embedding network
         self.e_net = nn.Sequential(
@@ -541,7 +543,6 @@ class BNCDEModule(LightningModule):
             outcomes, 
             treatments
             ):
-        
 
         # Apply normalization
         outcomes = self.norm_outcomes(outcomes, outcome_history)
@@ -585,7 +586,9 @@ class BNCDEModule(LightningModule):
         pred = self.pred_head(z1)
         y_pred, sigma_pred = pred[:, :, :, 0], F.softplus(pred[:, :, :, 1])
 
+        # Undo normalization
         y_pred = self.norm_outcomes.inverse(y_pred.permute(1, 2, 0)).permute(2, 0, 1)
+        
         # Only the last step
         y_pred = y_pred[..., -1:]
         sigma_pred = sigma_pred[..., -1:]
@@ -687,7 +690,7 @@ class BNCDEModule(LightningModule):
     def validation_step(self, batch, batch_idx):
         loss, outcome_loss, mu_pred, sigma_pred, y, _ = self.model_step(batch)
         
-        if batch_idx == 0:
+        if self.visualize and batch_idx == 0:
             fig, ax = plot_trajectories_with_uncertainty(
                 batch=batch, 
                 model=self, 

@@ -7,24 +7,23 @@ simulate_online: false
 t_horizon: 10
 t_end: 30
 noise_st: 0.0
+alpha: 1.0
 dynamics:
   _target_: src.data.components.covid_dynamics.CovidDynamics
   params:
-    k_IR: 1.0 # 0.2
-    k_PF: 0.1 # 1.0 # 0.2
-    k_O: 0.1 # 1.0
-    E_max: 1.0 # 1.0
-    E_C: 1.0 # 1.0
-    k_DP: 4.0 # 4.0
-    k_IIR: 1.0 # 0.1
-    k_DC: 1.0 # 0.1
-    h_P: 2.0 # 2
-    k_1: 1.0 # 1
-    k_2: 1.0 # 1
-    k_3: 1.0 # 1
-    h_C: 2.0 # 8
-
-    
-covariate_size: 4
+    hill_cure: 2.0
+    hill_patho: 2.0
+    ec50_patho: 1.0
+    emax_patho: 1.0
+    k_dexa: 1.0
+    k_discure_immunereact: 1.0
+    k_discure_immunity: 1.0
+    k_disprog: 1.0
+    k_immune_disease: 1.0
+    k_immune_feedback: 1.0
+    k_immune_off: 1.0
+    k_immunity: 1.0
+    kel: 1.0
+covariate_size: 3
 treatment_size: 1
 outcome_size: 1

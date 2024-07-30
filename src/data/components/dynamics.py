@@ -30,6 +30,7 @@ class DynamicsDataset(Dataset):
             simulate_online=True,
             noise_st=0.1,
             do_normalize=False,
+            alpha=1.0,
             ):
 
         self.dynamics = dynamics
@@ -49,9 +50,11 @@ class DynamicsDataset(Dataset):
 
         self.simulate_online = simulate_online
         self.noise_std = noise_st
+        self.alpha = alpha
 
         if self.simulate_online:
-            assert not do_normalize, 'normalize not supported for simulate_online'
+            assert not do_normalize, """normalize not supported 
+                                        for simulate_online"""
 
         else:
             self.data = []
@@ -118,9 +121,9 @@ class DynamicsDataset(Dataset):
         else:
             return state
 
-    def sample_with_confounding(self, d_w, alpha=1.0):
-        beta = (alpha - 1) / d_w + 2 - alpha
-        return scipy.stats.beta.rvs(alpha, beta, size=1)[0]
+    def sample_with_confounding(self, d_w):
+        beta = (self.alpha - 1) / d_w + 2 - self.alpha
+        return scipy.stats.beta.rvs(self.alpha, beta, size=1)[0]
 
     def simulate_with_confounding(
             self,
@@ -137,7 +140,7 @@ class DynamicsDataset(Dataset):
 
             treatment_dose = self.sample_with_confounding(treatment_dose)
 
-            t_reset = t_split-t_split.min()
+            t_reset = t_split - t_split.min()
 
             state = self.simulate_step(
                 initial_state=initial_state,

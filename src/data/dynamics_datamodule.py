@@ -1,10 +1,6 @@
-from typing import Any, Dict, Optional, Tuple
-
-import torch
+from typing import Any, Dict, Optional
 from lightning import LightningDataModule
-from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
-from torchvision.transforms import transforms
-import scipy
+from torch.utils.data import DataLoader, Dataset
 
 
 class DynamicsDataModule(LightningDataModule):

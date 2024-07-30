@@ -1,7 +1,5 @@
 import numpy as np
-import scipy.integrate
 import torch
-import scipy
 from src.data.components.dynamics import Dynamics, DynamicsDataset
 
 
@@ -17,11 +15,6 @@ def delayed_fluids_input(t, delay):
     return 5*np.exp(-((t-5-delay)/2)**2)
 
 
-def sample_with_confounding(d_w, alpha=1.0):
-    beta = (alpha - 1) / d_w + 2 - alpha
-    return scipy.stats.beta.rvs(alpha, beta, size=1)[0]
-
-
 def v_fun(x):
     return 0.02*(np.cos(5*x-0.2) * (5-x)**2)**2
 
@@ -34,57 +27,69 @@ class CovidDynamics(Dynamics):
 
     def __init__(self, params):
         self.params = params
-
+   
     def dxdt(self, x, t, intervention, dose):
 
-        # Parameters:
-        k_IR = self.params["k_IR"]
-        k_PF = self.params["k_PF"]
-        k_O = self.params["k_O"]
-        E_max = self.params["E_max"]
-        E_C = self.params["E_C"]
-        k_Dex = self.params["k_Dex"]
-        k_DP = self.params["k_DP"]
-        k_IIR = self.params["k_IIR"]
-        k_DC = self.params["k_DC"]
-        h_P = self.params["h_P"]
-        k_1 = self.params["k_1"]
-        k_2 = self.params["k_2"]
-        k_3 = self.params["k_3"]
-        h_C = self.params["h_C"]
+        # adapted from https://github.com/ZhaozhiQIAN/Hybrid-ODE-NeurIPS-2021/blob/main/dataloader.py
 
+        hill_cure = self.params["hill_cure"]
+        hill_patho = self.params["hill_patho"]
+        ec50_patho = self.params["ec50_patho"]
+        emax_patho = self.params["emax_patho"]
+        k_dexa = self.params["k_dexa"]
+        k_discure_immunereact = self.params["k_discure_immunereact"]
+        k_discure_immunity = self.params["k_discure_immunity"]
+        k_disprog = self.params["k_disprog"]
+        k_immune_disease = self.params["k_immune_disease"]
+        k_immune_feedback = self.params["k_immune_feedback"]
+        k_immune_off = self.params["k_immune_off"]
+        k_immunity = self.params["k_immunity"]
+        kel = self.params["kel"]
+
+        # Unpack x
+        disease = x[0]
+        immune_react = x[1]
+        immunity = x[2]
+        dose2 = x[3]
+
+        # Define the dose at time t
         additive_term = intervention(t, dose)
-        dx = np.empty_like(x)
-        dx[0] = k_IR * x[3] + k_PF * x[3] * x[0] - k_O * x[0] \
-            + (E_max * (x[0]**h_P)) / (E_C + (x[0]**h_P)) - k_Dex * x[0] * x[1]
-        dx[1] = -k_2*x[1] + k_3*x[2]
-        dx[2] = -k_3 * x[2] + additive_term
-        dx[3] = k_DP * x[3] - k_IIR * x[3] * x[0] - k_DC * x[3] * (x[4]**h_C)
-        dx[4] = k_1 * x[0]
-        # if (dx > 100).any():
-        #     print(dx)
-        #     print("========================")
-        #     import pdb; pdb.set_trace()
-        return dx
+
+        # Define the derivatives
+        dxdt0 = (
+            disease * k_disprog
+            - disease * immunity ** hill_cure * k_discure_immunity
+            - disease * immune_react * k_discure_immunereact
+        )
+
+        dxdt1 = (
+            disease * k_immune_disease
+            - immune_react * k_immune_off
+            + disease * immune_react * k_immune_feedback
+            + (immune_react ** hill_patho * emax_patho) / (ec50_patho ** hill_patho + immune_react ** hill_patho)
+            - dose2 * immune_react * k_dexa
+        )
+
+        dxdt2 = immune_react * k_immunity
+
+        dxdt3 = kel * additive_term - kel * dose2
+
+        return np.array([dxdt0, dxdt1, dxdt2, dxdt3])
 
     def get_initial_condition(self):
 
-        x0 = np.random.exponential(10 / 2)
-        x1 = np.random.exponential(1/100)
-        x2 = np.random.exponential(1/100)
-        x3 = np.random.exponential(10 / 2)
-        x4 = np.random.exponential(1)
+        x0 = np.random.exponential(scale=0.01)
+        x1 = np.random.exponential(scale=0.01)
+        x2 = np.random.exponential(scale=0.01)
+        x3 = np.random.exponential(scale=0.01)
 
-        init_state = np.stack((x0, x1, x2, x3, x4))
+        init_state = np.stack((x0, x1, x2, x3))
         initial_dose = 2 + 0.5 * np.random.randn()
-        k_Dex = 1 + 15*np.random.rand()
 
         initial_condition = {
             'initial_state': init_state,
             'initial_dose': initial_dose,
-            'sampled_params': {
-                'k_Dex': k_Dex,
-            }
+            'sampled_params': {}
         }
 
         return initial_condition
@@ -102,9 +107,8 @@ class CovidDataset(DynamicsDataset):
         x2 = covariate[:, 0].squeeze()
         x3 = covariate[:, 1].squeeze()
         x4 = covariate[:, 2].squeeze()
-        x5 = covariate[:, 3].squeeze()
 
-        state = torch.stack([x1, x2, x3, x4, x4, x5]) # order matters
+        state = torch.stack([x1, x2, x3, x4]) # order matters
 
         return self.denormalize(state)
 

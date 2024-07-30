@@ -1,16 +1,10 @@
 # @package _global_
 
-# to execute this experiment run:
-# python treat.py experiment=example
-
 defaults:
   - override /data: dynamics
   - override /model: ct
-  # - override /callbacks: default
-  # - override /trainer: default
-
-# all parameters below will be merged with parameters from default configurations set above
-# this allows you to overwrite only specified parameters
+  - override /callbacks: default
+  - override /trainer: default
 
 tags: ["balanced", "ct"]
 
@@ -22,6 +16,11 @@ trainer:
   gradient_clip_val: 0.5
 
 model:
+  _target_: src.models.sampled_uncertainty_module.SampledUncertaintyModule
+  net:
+    covariate_size: ${data.train_dataset.covariate_size}
+    treatment_size: ${data.train_dataset.treatment_size}
+    outcome_size: ${data.train_dataset.outcome_size}
   optimizer:
     lr: 0.002
   compile: false
@@ -35,11 +34,23 @@ logger:
     offline: false
 
 treat:
-  uncertainty_weights: [0.0, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0]
-  n_replicates: 5
+  uncertainty_weights: [0.0, 0.00001, 0.0001, 0.001, 0.01, 0.0625, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0]
+  n_replicates: 6
+  replicate_type: 'instance'
   mse_weight: 0.02
-  clamp_max: 8
-  clamp_slope: 0.1
-  n_iter: 75
-  learning_rate: 0.1
-  optimizer: AdamW
+  select_treatment:
+    _target_: src.utils.treat.select_treatment
+    _partial_: true
+    constraints: 
+      _target_: src.utils.constraints.leaky_clamp
+      _partial_: true
+      max: 4
+      slope: 0.01
+    optimization_loop: 
+      _target_: src.utils.treat.sgdlike_loop
+      _partial_: true
+    optimizer:
+      _target_: torch.optim.AdamW
+      _partial_: true
+      lr: 0.1
+    n_iter: 50

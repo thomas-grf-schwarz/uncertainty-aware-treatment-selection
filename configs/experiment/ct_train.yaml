@@ -1,16 +1,10 @@
 # @package _global_
 
-# to execute this experiment run:
-# python train.py experiment=example
-
 defaults:
   - override /data: dynamics
   - override /model: ct
   - override /callbacks: default
   - override /trainer: default
-
-# all parameters below will be merged with parameters from default configurations set above
-# this allows you to overwrite only specified parameters
 
 tags: ["balanced", "ct"]
 
