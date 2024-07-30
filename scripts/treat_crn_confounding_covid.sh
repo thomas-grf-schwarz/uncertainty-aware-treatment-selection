@@ -1,5 +1,5 @@
 #!/bin/bash
-# Schedule execution of many runs
+
 log_dir=/home/tschw/Documents/Neuroengineering/causal_dynamics/uncertainty-aware-treatment-selection/logs
 
 # Effect of the mse weight

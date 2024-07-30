@@ -135,20 +135,21 @@ def treat(cfg: DictConfig, model_name) -> Tuple[Dict[str, Any], Dict[str, Any]]:
                 )
 
             # Specify the objective for treatment selection to minimize
+            total_weight = cfg.treat.mse_weight + weight
             if weight == 0.0:
-                weight_ratio = 0.0
+                uncertainty_weight_ratio = 0.0
             else:
-                weight_ratio = weight / (cfg.treat.mse_weight + weight)
+                uncertainty_weight_ratio = weight / total_weight
 
             if cfg.treat.mse_weight == 0.0:
                 mse_weight_ratio = 0.0
             else:
-                mse_weight_ratio = cfg.treat.mse_weight / (cfg.treat.mse_weight + weight)
+                mse_weight_ratio = cfg.treat.mse_weight / total_weight
             
             uncertainty_mse_objective = partial(
                 composed_objective,
                 objectives={
-                    uncertainty_objective: weight_ratio,
+                    uncertainty_objective: uncertainty_weight_ratio,
                     mse_objective: mse_weight_ratio
                     }
                 )

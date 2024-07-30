@@ -1,7 +1,5 @@
 import numpy as np
-import scipy.integrate
 import torch
-import scipy
 from src.data.components.dynamics import Dynamics, DynamicsDataset
 
 
@@ -15,11 +13,6 @@ def dosed_fluids_input(t, dose):
 
 def delayed_fluids_input(t, delay):
     return 5*np.exp(-((t-5-delay)/2)**2)
-
-
-def sample_with_confounding(d_w, alpha=1.0):
-    beta = (alpha - 1) / d_w + 2 - alpha
-    return scipy.stats.beta.rvs(alpha, beta, size=1)[0]
 
 
 def v_fun(x):

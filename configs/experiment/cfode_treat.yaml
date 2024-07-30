@@ -1,16 +1,10 @@
 # @package _global_
 
-# to execute this experiment run:
-# python treat.py experiment=example
-
 defaults:
   - override /data: dynamics
   - override /model: cfode
   - override /callbacks: default
   - override /trainer: default
-
-# all parameters below will be merged with parameters from default configurations set above
-# this allows you to overwrite only specified parameters
 
 tags: ["cfode", "cfode"]
 

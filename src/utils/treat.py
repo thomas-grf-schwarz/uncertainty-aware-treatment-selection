@@ -27,24 +27,10 @@ def test_create_identical_batch(batch):
             assert (id_batch[e_idx][i_idx] == instance).all()
 
 
-def model_step(model, X, T):
-    Y_hat, *_ = model(X, T)
-    mu, var = torch.chunk(Y_hat, 2,-1)
-    return mu, torch.sigmoid(var)
-
-
-def compute_inferred_uncertainty(model, X, T):       
-    return model_step(model, X, T)
-
-
-def compute_sampled_uncertainty(model, X, T):
-    X, T = create_identical_batch((X, T))
-    mu, _ = model_step(model, X, T)
-    return mu.mean(1), mu.var(1)
-
-
 def input_to_numpy(f):
+    
     def wrapper(*args, **kwargs):
+        
         args_converted = []
         for arg in args:
             if isinstance(arg, torch.Tensor):
@@ -248,12 +234,14 @@ def simulate_treatments(
     simulate_outcome
 ):
 
-    treatments_as_func = lambda tx,dose:treatments[int(tx)]
+    def treatment_fn(tx, dose):
+        return treatments[int(tx)]
+
     outcome = simulate_outcome(
         initial_state=initial_state,
         treatment_dose=1.0,
         t=np.arange(t_horizon),
-        intervention=treatments_as_func
+        intervention=treatment_fn
         )
     return outcome
 
