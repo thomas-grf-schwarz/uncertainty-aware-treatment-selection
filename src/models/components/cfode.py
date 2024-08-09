@@ -359,7 +359,8 @@ class CFODE(nn.Module):
             'outcome loss': outcome_loss,
         }
         return losses
-    
+
+
 def test_lazy_mlp_out_shape(inp_shape):
     B, C = inp_shape
     out_shape = torch.Size([B, 12])

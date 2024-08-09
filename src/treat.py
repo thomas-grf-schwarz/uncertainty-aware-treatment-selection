@@ -155,6 +155,7 @@ def treat(cfg: DictConfig, model_name) -> Tuple[Dict[str, Any], Dict[str, Any]]:
                 )
                             
             # Perform treatment selection
+            # mu, var - mean and variance of outcomes corr. to selected treatment
             mu, var, treatments, losses = select_treatment(
                 model=model,
                 instance=copy.deepcopy(instance),

@@ -42,8 +42,18 @@ class VariationalGRU(nn.Module):
             out.append(hidden)
         return torch.stack(out, dim=-2), hidden
 
+    def multilayer_forward(self, x, hidden):
+        B, L, C = x.shape
+        B, C, NL = hidden.shape
+        out = []
+        hidden = hidden[-1, ...]
+        for l in range(L):
+            _, hidden = self.forward_step(x[:, l, :], hidden)
+            out.append(hidden)
+        return torch.stack(out, dim=-2), hidden
 
-class CRN(nn.Module):
+
+class GNet(nn.Module):
     def __init__(
             self,
             covariate_size,
@@ -62,26 +72,18 @@ class CRN(nn.Module):
         self.treatment_size = treatment_size
         self.outcome_size = outcome_size
 
-        # Encoder components
-        input_size = covariate_size + treatment_size + outcome_size
-        self.encoder_rnn = nn.GRU(
-            input_size=input_size,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            batch_first=True
-            )
-
         # Decoder components
+        input_size = covariate_size + treatment_size + outcome_size
         self.decoder_rnn = VariationalGRU(
-            input_size=treatment_size,
+            input_size=input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
             p_dropout=p_dropout
             )
-        self.out = nn.Linear(
-            hidden_size,
-            outcome_size
-            )
+        # self.out = nn.Linear(
+        #     hidden_size,
+        #     outcome_size
+        #     )
 
         # Normalization
         self.norm_treatments = FixedTransferableNorm(
@@ -109,12 +111,6 @@ class CRN(nn.Module):
         self.outcome_loss = torch.nn.MSELoss()
         self.alpha = alpha
 
-    def encoder_forward(self, input_seq):
-        B, L, C = input_seq.shape
-        hidden = self.init_hidden(B)
-        output_seq, hidden = self.encoder_rnn(input_seq, hidden)
-        return output_seq, hidden
-
     def decoder_forward(self, input_seq, encoder_hidden):
         output_seq, decoder_hidden = self.decoder_rnn(
             x=input_seq,
@@ -131,16 +127,11 @@ class CRN(nn.Module):
             outcomes=None
             ):
 
-        past_seq = torch.cat([
+        return torch.cat([
             covariate_history,
             treatment_history,
             outcome_history],
             dim=-1)
-
-        encoder_input_seq = past_seq
-        decoder_input_seq = treatments
-
-        return encoder_input_seq, decoder_input_seq
 
     def prepare_output(self, output_seq):
         outcomes, treatments = output_seq.split(
@@ -151,7 +142,7 @@ class CRN(nn.Module):
 
     def init_hidden(self, batch_size):
         return torch.zeros(self.num_layers, batch_size, self.hidden_size)
-
+    
     def infer(
             self,
             covariate_history,
@@ -161,58 +152,89 @@ class CRN(nn.Module):
             outcomes
             ):
         
-        out = self.forward(
-            covariate_history=covariate_history,
-            treatment_history=treatment_history,
-            outcome_history=outcome_history,
-            treatments=treatments,
-            outcomes=outcomes
-        )
+        B, L, _ = treatments.shape
+       
+        pred_outcomes = []
 
-        return out
+        for l in range(L):
+
+            residual_outcomes, residual_covariates = self.sample_residual_batch(l, B)
+
+            pred_outcomes_out, pred_covariates_out = self.forward(
+                covariate_history=covariate_history,
+                treatment_history=treatment_history,
+                outcome_history=outcome_history,
+                )
+    
+            covariate_history = torch.cat(
+                [covariate_history[:, 1:, :],
+                 pred_covariates_out[:, -1:, :] + residual_covariates],
+                dim=-2)
+
+            treatment_history = torch.cat(
+                [treatment_history[:, 1:, :],
+                 treatments[:, l, None, :]],
+                dim=-2)
+
+            outcome_history = torch.cat(
+                [outcome_history[:, 1:, :],
+                 pred_outcomes_out[:, -1:, :] + residual_outcomes],
+                dim=-2)
+
+            pred_outcomes.append(pred_outcomes_out)
+
+        pred_outcomes = torch.stack(pred_outcomes, dim=-2)
+        
+        return pred_outcomes.mean(0)
+
+    def sample_residual(self, l):
+        assert hasattr(self, 'holdout_residuals')
+        idx = torch.randint(high=len(self.holdout_residuals), size=(1,))
+        residual_outcomes, residual_covariates = self.holdout_residuals[idx]
+        return residual_outcomes[l], residual_covariates[l]
+    
+    def sample_residual_batch(self, l, n):
+        residual_outcomes, residual_covariates = list(
+            zip(*[self.sample_residual(l) for _ in range(n)])
+            )
+        return torch.stack(residual_outcomes), torch.stack(residual_covariates)
 
     def forward(
             self,
             covariate_history,
             treatment_history,
             outcome_history,
-            treatments,
-            outcomes
+            treatments=None,
+            outcomes=None,
+            active_entries=None,
             ):
 
-        # Apply normalization
-        outcomes = self.norm_outcomes(outcomes, outcome_history)
-        outcome_history = self.norm_outcomes.transfer(outcome_history)
-
-        treatments = self.norm_treatments(
-            target_seq=treatments,
-            source_seq=treatment_history
-            )
-        treatment_history = self.norm_treatments.transfer(treatment_history)
-
-        covariate_history = self.norm_covariates(covariate_history)
-
-        # Prepare inputs for the encoder and decoder
-        encoder_input_seq, decoder_input_seq = self.prepare_input(
+        treatments, outcomes, covariates = self.prepare_input(
             covariate_history=covariate_history,
             treatment_history=treatment_history,
             outcome_history=outcome_history,
             treatments=treatments,
-            outcomes=outcomes
+            outcomes=outcomes,
             )
 
-        # Encoder and decoder forward
-        _, encoder_hidden = self.encoder_forward(encoder_input_seq)
-        representations, _ = self.decoder_forward(
-            input_seq=decoder_input_seq,
-            encoder_hidden=encoder_hidden
-            )
+        B, L, C = treatments.shape
 
-        # Project to the outcome size
-        pred_outcomes = self.out(representations)
-        pred_outcomes = self.norm_outcomes.inverse(pred_outcomes)
+        # Normalize
+        treatments = self.norm_treatments(treatments)
+        outcomes = self.norm_outcomes(outcomes)
+        covariates = self.norm_covariates(covariates)
 
-        return pred_outcomes, representations
+        # Decoder forward
+        out = self.decoder_forward(
+            input_seq=torch.cat([treatments, outcomes, covariates], dim=-1),
+            encoder_hidden=self.init_hidden(B)
+        )
+
+        # Predict both outcomes and covariates
+        pred_outcomes = out[..., :self.outcome_size]
+        pred_covariates = out[..., self.outcome_size:]
+
+        return pred_outcomes, pred_covariates
 
     def model_step(self, batch):
         """Perform a single model step on a batch of data.
@@ -223,7 +245,7 @@ class CRN(nn.Module):
                 - 'loss': tensor (overall loss)
                 - 'outcome_loss': tensor (MSE of outcomes)
         """
-        pred_outcomes, representations = self.forward(
+        pred_outcomes, pred_covariates = self.forward(
             covariate_history=batch['covariate_history'],
             treatment_history=batch['treatment_history'],
             outcome_history=batch['outcome_history'],
@@ -232,20 +254,42 @@ class CRN(nn.Module):
         )
 
         outcome_loss = self.outcome_loss(
-            pred_outcomes[...],
-            batch['outcomes']
+            pred_outcomes[:, :-1, :],
+            batch['outcome_history'][:, 1:, :]
             )
-        balancing_loss = self.balancing_criterion(
-            representations,
-            batch['treatments']
+        
+        covariate_loss = self.outcome_loss(
+            pred_covariates[:, :-1, :],
+            batch['covariate_history'][:, 1:, :]
             )
-
-        loss = self.alpha * balancing_loss + outcome_loss
 
         losses = {
-            'loss': loss,
-            'balancing_loss': balancing_loss,
+            'loss': covariate_loss + outcome_loss,
             'outcome loss': outcome_loss,
         }
 
         return losses
+
+    def on_fit_end(self) -> None:
+
+        # adapted from https://github.com/konstantinhess/G_transformer/blob/main/src/models/gnet.py       
+
+        self.eval()
+        self.holdout_residuals = []
+        for batch in self.trainer.datamodule.val_dataloader:
+
+            pred_outcomes, pred_covariates = self.forward(
+                covariate_history=batch['covariate_history'],
+                treatment_history=batch['treatment_history'],
+                outcome_history=batch['outcome_history'],
+                outcomes=batch['outcomes'],
+                treatments=batch['treatments']
+            )
+
+            # [B L C] -> N [L C]
+            self.holdout_residuals.extend(
+                zip(
+                    (batch['outcome_history'] - pred_outcomes).tolist(),
+                    (batch['covariate_history'] - pred_covariates).tolist()
+                )
+            )
