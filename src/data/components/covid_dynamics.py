@@ -25,12 +25,53 @@ def sigmoid(x):
 
 class CovidDynamics(Dynamics):
 
+    """
+    A concrete implementation of the Dynamics class for simulating the 
+    dynamics of the immune system challenged by a covid infection
+    Adapted from https://github.com/ZhaozhiQIAN/Hybrid-ODE-NeurIPS-2021/blob/main/dataloader.py
+
+    Attributes
+    ----------
+    params : dict
+        A dictionary containing model parameters for the immune system.
+
+    Methods
+    -------
+    dxdt(self, x, t, intervention, dose):
+        Calculate the time derivative of the immune system state vector at 
+        time `t`.
+
+    get_initial_condition(self):
+        Generate and return the initial condition for the immune 
+        system's state.
+    """
     def __init__(self, params):
         self.params = params
    
     def dxdt(self, x, t, intervention, dose):
 
-        # adapted from https://github.com/ZhaozhiQIAN/Hybrid-ODE-NeurIPS-2021/blob/main/dataloader.py
+        """
+        Calculate the time derivative of the immune system state vector `x` 
+        at time `t`.
+
+        Parameters
+        ----------
+        x : array-like
+            The current state of the immune system, including disease state,
+            innate immune reaction, immunity and dexamethasone
+        t : float
+            The current time.
+        intervention : callable
+            A function representing an external intervention applied to the 
+            system, i.e. dexamethasone
+        dose : float
+            The dose associated with the intervention.
+
+        Returns
+        -------
+        np.ndarray
+            The time derivative of the immune system state vector.
+        """
 
         hill_cure = self.params["hill_cure"]
         hill_patho = self.params["hill_patho"]
@@ -78,6 +119,25 @@ class CovidDynamics(Dynamics):
 
     def get_initial_condition(self):
 
+        """
+        Generate and return the initial condition for the immune 
+        system's state.
+
+        The initial condition includes randomly sampled initial values for the
+        disease state, innate immune reaction, immunity and dexamethasone       
+        as well as an initial dose for the intervention.
+
+        Returns
+        -------
+        dict
+            A dictionary containing:
+            - 'initial_state': np.ndarray of initial state variables (disease 
+            state, innate immune reaction, immunity and dexamethasone).
+            - 'initial_dose': float representing the initial dose.
+            - 'sampled_params': dict of any additional sampled parameters 
+              (currently empty).
+        """
+
         x0 = np.random.exponential(scale=0.01)
         x1 = np.random.exponential(scale=0.01)
         x2 = np.random.exponential(scale=0.01)
@@ -98,10 +158,61 @@ class CovidDynamics(Dynamics):
 class CovidDataset(DynamicsDataset):
 
     def simulate_outcome(self, initial_state, treatment_dose, t, intervention):
+
+        """
+        Simulate the disease state outcome for the 
+        immune system.
+
+        This method simulates the immune system dynamics using the given 
+        initial state, treatment dose, and intervention over the time 
+        steps `t`. The disease state is extracted and 
+        returned as the outcome of interest.
+
+        Parameters
+        ----------
+        initial_state : array-like
+            The initial state of the immune system
+        treatment_dose : float
+            The treatment dose applied to the system during the simulation.
+        t : array-like
+            The time steps over which to simulate the system.
+        intervention : callable
+            A function representing the intervention applied to the system 
+            during the simulation.
+
+        Returns
+        -------
+        np.ndarray
+            The simulated disease state over the time steps `t`.
+        """
+
         out = self.simulate_step(initial_state, treatment_dose, t, intervention).T
         return out[0]
 
     def to_state(self, outcome, covariate):
+
+        """
+        Convert the outcome and covariate arrays into a state tensor for the 
+        immune system.
+
+        This method combines the outcome (disease state) with the 
+        covariates (innate immune reaction, immunity and  dexamethasone) to 
+        form a state tensor representing the immune system. The resulting 
+        state tensor is denormalized before returning.
+
+        Parameters
+        ----------
+        outcome : array-like
+            The outcome array
+        covariate : array-like
+            The covariate array
+
+        Returns
+        -------
+        torch.Tensor
+            The state tensor representing the immune system, ordered in the 
+            same way as the state in the corresponding dynamics class
+        """
 
         x1 = outcome.squeeze()
         x2 = covariate[:, 0].squeeze()
@@ -113,6 +224,45 @@ class CovidDataset(DynamicsDataset):
         return self.denormalize(state)
 
     def __getitem__(self, idx):
+
+        """
+        Retrieve the covid dataset instance at the given index.
+
+        This method returns a dictionary containing the history of outcomes, 
+        treatments, covariates, and the initial state for the immune 
+        system at the specified index. If `simulate_online` is True, the data 
+        is simulated on-the-fly using the stored initial conditions; 
+        otherwise, it is retrieved from precomputed data.
+
+        The returned dictionary contains the following keys:
+        
+        - 'outcome_history': torch.Tensor
+            The history of the disease state up until the 
+            prediction horizon.
+        - 'treatment_history': torch.Tensor
+            The history of the treatment doses applied before the prediction 
+            horizon.
+        - 'covariate_history': torch.Tensor
+            The history of covariates (innate immune reaction, immunity and 
+            dexamethasone) up until the prediction horizon.
+        - 'outcomes': torch.Tensor
+            The disease state over the prediction horizon.
+        - 'treatments': torch.Tensor
+            The treatment doses applied over the prediction horizon.
+        - 'initial_state': torch.Tensor
+            The initial state of the immune system at the start of the 
+            simulation.
+
+        Parameters
+        ----------
+        idx : int
+            The index of the desired dataset instance.
+
+        Returns
+        -------
+        dict
+            A dictionary containing the specified keys with corresponding data.
+        """
 
         if self.simulate_online:
 

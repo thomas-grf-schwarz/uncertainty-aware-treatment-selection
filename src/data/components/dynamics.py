@@ -8,10 +8,61 @@ import torch
 
 class Dynamics:
 
+    """
+    A base class for modeling dynamical systems. This class defines the interface 
+    for calculating the time derivative of the state (`dxdt`) and obtaining 
+    the initial condition of the system.
+
+    Methods
+    -------
+    dxdt(self, x, t, params, intervention, dose):
+        Calculate the time derivative of the state vector at a given time `t`.
+        This method should be implemented by subclasses.
+
+    get_initial_condition(self):
+        Generate and return the initial condition for the system's state.
+        This method should be implemented by subclasses.
+    """
+
     def dxdt(self, x, t, params, intervention, dose):
+    
+        """
+        Calculate the time derivative of the state vector `x` at time `t`.
+
+        Parameters
+        ----------
+        x : array-like
+            The current state of the system.
+        t : float
+            The current time.
+        params : dict
+            A dictionary of parameters for the system.
+        intervention : callable
+            A function of time representing an intervention applied to 
+            the system.
+        dose : float
+            The dose associated with the intervention.
+
+        Returns
+        -------
+        array-like
+            The time derivative of the state vector.
+        """
+
         raise NotImplementedError
     
     def get_initial_condition(self):
+
+        """
+        Generate and return the initial condition of the system.
+
+        Returns
+        -------
+        dict
+            A dictionary containing the following keys: initial_state, 
+            initial_dose, and sampled_params
+        """
+
         raise NotImplementedError
 
 
@@ -167,6 +218,31 @@ class DynamicsDataset(Dataset):
             t,
             intervention
             ):
+
+        """
+        Simulate the outcome of a dynamical system given an initial state, 
+        treatment dose, and intervention.
+
+        This method should be implemented by subclasses to return the outcome 
+        variable among the state variables of the system.
+
+        Parameters
+        ----------
+        initial_state : array-like
+            The initial state of the system, typically including state variables relevant to the dynamics.
+        treatment_dose : float
+            The treatment dose applied to the system during the simulation.
+        t : array-like
+            The time steps over which to simulate the system.
+        intervention : callable
+            A function representing the intervention applied to the system during the simulation.
+
+        Returns
+        -------
+        np.ndarray
+            The simulated outcome over the time steps `t`, specific to the system being modeled.
+        """    
+    
         raise NotImplementedError
 
     def simulate_step(
@@ -191,6 +267,42 @@ class DynamicsDataset(Dataset):
         return len(self.initial_conditions)
 
     def __getitem__(self, idx):
+
+        """
+        Retrieve the dataset instance at the given index.
+
+        This method should be implemented by subclasses to return a specific 
+        instance of the dataset, including any relevant history of outcomes, 
+        treatments, covariates, and the initial state.
+        
+        The returned dictionary should contain the following keys:
+        
+        - 'outcome_history': torch.Tensor
+            The history of the outcome variable up until the prediction 
+            horizon.
+        - 'treatment_history': torch.Tensor
+            The history of the treatment doses applied before the prediction 
+            horizon.
+        - 'covariate_history': torch.Tensor
+            The history of covariates up until the prediction horizon.
+        - 'outcomes': torch.Tensor
+            The outcome variable over the prediction horizon.
+        - 'treatments': torch.Tensor
+            The treatment doses applied over the prediction horizon.
+        - 'initial_state': torch.Tensor
+            The initial state of the system at the start of the simulation.
+
+        Parameters
+        ----------
+        idx : int
+            The index of the desired dataset instance.
+
+        Returns
+        -------
+        dict
+            A dictionary containing the specified keys with corresponding data.
+        """
+
         raise NotImplementedError
     
     def visualize_stats(self):
