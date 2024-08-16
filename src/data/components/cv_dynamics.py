@@ -25,10 +25,55 @@ def sigmoid(x):
 
 class CardioVascularDynamics(Dynamics):
 
+    """
+    A concrete implementation of the Dynamics class for simulating dynamics of
+    arterial and venous blood pressure.
+    Adapted from https://github.com/microsoft/cf-ode/blob/main/causalode/cv_data_utils.py   
+
+    Attributes
+    ----------
+    params : dict
+        A dictionary containing model parameters for the cardiovascular system.
+
+    Methods
+    -------
+    dxdt(self, x, t, intervention, dose):
+        Calculate the time derivative of the cardiovascular state vector at 
+        time `t`.
+
+    get_initial_condition(self):
+        Generate and return the initial condition for the cardiovascular 
+        system's state.
+    """
+
     def __init__(self, params):
         self.params = params
 
     def dxdt(self, x, t, intervention, dose):
+
+        """
+        Calculate the time derivative of the cardiovascular state vector `x` 
+        at time `t`.
+
+        Parameters
+        ----------
+        x : array-like
+            The current state of the cardiovascular system, including arterial 
+            pressure, venous pressure, autonomic baroreflex tone and cardiac 
+            stroke volume
+        t : float
+            The current time.
+        intervention : callable
+            A function representing an external intervention applied to the 
+            system, i.e. fluid
+        dose : float
+            The dose associated with the intervention.
+
+        Returns
+        -------
+        np.ndarray
+            The time derivative of the cardiovascular state vector.
+        """
 
         # Parameters:
         f_hr_max = self.params["f_hr_max"]
@@ -73,6 +118,25 @@ class CardioVascularDynamics(Dynamics):
 
     def get_initial_condition(self):
 
+        """
+        Generate and return the initial condition for the cardiovascular 
+        system's state.
+
+        The initial condition includes randomly sampled initial values for 
+        arterial pressure, venous pressure, autonomic baroreflex tone and 
+        cardiac stroke volume, as well as an initial dose for the intervention.
+
+        Returns
+        -------
+        dict
+            A dictionary containing:
+            - 'initial_state': np.ndarray of initial state variables (arterial 
+              pressure, venous pressure, sympathetic activity, stroke volume).
+            - 'initial_dose': float representing the initial dose.
+            - 'sampled_params': dict of any additional sampled parameters 
+              (currently empty).
+        """
+
         max_sv = 1.0
         min_sv = 0.9
 
@@ -111,11 +175,65 @@ class CardioVascularDynamics(Dynamics):
 class CardioVascularDataset(DynamicsDataset):
     
     def simulate_outcome(self, initial_state, treatment_dose, t, intervention):
+
+        """
+        Simulate the pulmonary venous pressure (pv) outcome for the 
+        cardiovascular system.
+
+        This method simulates the cardiovascular dynamics using the given 
+        initial state, treatment dose, and intervention over the time 
+        steps `t`. The pulmonary venous pressure (pv) is extracted and 
+        returned as the outcome of interest.
+
+        Parameters
+        ----------
+        initial_state : array-like
+            The initial state of the cardiovascular system
+        treatment_dose : float
+            The treatment dose applied to the system during the simulation.
+        t : array-like
+            The time steps over which to simulate the system.
+        intervention : callable
+            A function representing the intervention applied to the system 
+            during the simulation.
+
+        Returns
+        -------
+        np.ndarray
+            The simulated pulmonary venous pressure (pv) over the time steps `t`.
+        """
+
         pa, pv, s, sv = self.simulate_step(initial_state, treatment_dose, t, intervention).T
+        
         return pv
    
     def to_state(self, outcome, covariate):
-      
+
+        """
+        Convert the outcome and covariate arrays into a state tensor for the 
+        cardiovascular system.
+
+        This method combines the outcome (pulmonary venous pressure) with the 
+        covariates (arterial pressure, autonomic baroreflex tone, and stroke 
+        volume) to form a state tensor representing the cardiovascular system.
+        The resulting state tensor is denormalized before returning.
+
+        Parameters
+        ----------
+        outcome : array-like
+            The outcome array, typically representing the pulmonary venous 
+            pressure (pv).
+        covariate : array-like
+            The covariate array, typically containing arterial pressure (pa), 
+            autonomic baroreflex tone (s), and stroke volume (sv).
+
+        Returns
+        -------
+        torch.Tensor
+            The state tensor representing the cardiovascular system, 
+            with the order [pa, pv, s, sv].
+        """
+
         pa = covariate[:, 0].squeeze()
         pv = outcome.squeeze()
         s = covariate[:, 1].squeeze()
@@ -126,6 +244,45 @@ class CardioVascularDataset(DynamicsDataset):
         return self.denormalize(state)
 
     def __getitem__(self, idx):
+
+        """
+        Retrieve the cardiovascular dataset instance at the given index.
+
+        This method returns a dictionary containing the history of outcomes, 
+        treatments, covariates, and the initial state for the cardiovascular 
+        system at the specified index. If `simulate_online` is True, the data 
+        is simulated on-the-fly using the stored initial conditions; 
+        otherwise, it is retrieved from precomputed data.
+
+        The returned dictionary contains the following keys:
+        
+        - 'outcome_history': torch.Tensor
+            The history of the pulmonary venous pressure (pv) up until the 
+            prediction horizon.
+        - 'treatment_history': torch.Tensor
+            The history of the treatment doses applied before the prediction 
+            horizon.
+        - 'covariate_history': torch.Tensor
+            The history of covariates (arterial pressure, autonomic baroreflex 
+            tone, stroke volume) up until the prediction horizon.
+        - 'outcomes': torch.Tensor
+            The pulmonary venous pressure (pv) over the prediction horizon.
+        - 'treatments': torch.Tensor
+            The treatment doses applied over the prediction horizon.
+        - 'initial_state': torch.Tensor
+            The initial state of the cardiovascular system at the start of the 
+            simulation.
+
+        Parameters
+        ----------
+        idx : int
+            The index of the desired dataset instance.
+
+        Returns
+        -------
+        dict
+            A dictionary containing the specified keys with corresponding data.
+        """
 
         if self.simulate_online:
 
