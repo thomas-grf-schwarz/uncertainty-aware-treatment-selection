@@ -1,0 +1,23 @@
+_target_: src.data.components.tumor_growth_dynamics.TumorGrowthDataset
+n_instances: ???
+intervention:
+  _target_: src.data.components.tumor_growth_dynamics.intervention_function
+  _partial_: true
+simulate_online: false
+t_horizon: 10
+t_end: 30
+noise_st: 0.0
+alpha: 1.0
+dynamics:
+  _target_: src.data.components.tumor_growth_dynamics.TumorGrowthDynamics
+  params:
+    KDE: 0.1       
+    k_QP: 0.05     
+    k_PQ: 0.03     
+    lambda_P: 0.1  
+    lambda_Q: 0.05 
+    delta_Q: 0.01  
+    K: 50           
+covariate_size: 3
+treatment_size: 1
+outcome_size: 1
