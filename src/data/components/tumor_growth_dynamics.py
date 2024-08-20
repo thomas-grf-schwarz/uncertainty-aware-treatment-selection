@@ -1,9 +1,27 @@
 import numpy as np
 import torch
-from src.data.components.dynamics import Dynamics, DynamicsDataset
 
 import numpy as np
 import torch
+
+import sys
+import os
+sys.path.append(os.path.abspath('/Users/cecilia.casolo/Documents/GitHub/uncertainty-aware-treatment-selection/'))
+from src.data.components.dynamics import Dynamics, DynamicsDataset
+
+
+def damped_sin(t, initial_dose):
+    
+    lambda_base = 0.1  
+    omega_base = 1    
+    
+    lambda_d = lambda_base + 0.05 * initial_dose
+    omega_d = omega_base + 0.1 * initial_dose
+    
+    raw_output = 0.5 + 0.5 * np.exp(-lambda_d * t) * np.sin(omega_d * t)
+
+    return 1 / (1 + np.exp(-10 * (raw_output - 0.5))) # sigmoid transformation for [0,1] values
+
 
 class TumorGrowthDynamics(Dynamics):
     
@@ -23,7 +41,7 @@ class TumorGrowthDynamics(Dynamics):
     def __init__(self, params):
         self.params = params
 
-    def dxdt(self, x, t, intervention):
+    def dxdt(self, x, t, intervention, dose):
 
         KDE = self.params['KDE']
         k_QP = self.params['k_QP']
@@ -35,6 +53,9 @@ class TumorGrowthDynamics(Dynamics):
 
         # State variables: C, P, Q, Q_P
         C, P, Q, Q_P = x
+        
+        dose = np.random.normal(1.0, 0.3)
+        C = intervention(t, dose) # intervention on C - continuous value [0,1] over time 
         
         # Sum of all cellular compartments
         P_star = P + Q + Q_P
@@ -55,7 +76,7 @@ class TumorGrowthDynamics(Dynamics):
 
     def get_initial_condition(self):
         # Initial conditions based on the estimates provided in the paper https://pubmed.ncbi.nlm.nih.gov/22761472/
-        initial_C = 1.0  # Initial concentration of PCV
+        initial_C = 1.0  # Initial concentration of PCV - change to [0,1] sample
         initial_P = np.random.normal(1.45, 1.65)  # Mean and std dev for P
         initial_Q = np.random.normal(41.7, 22.70)  # Mean and std dev for Q
         initial_Q_P = 0.0  # Initial damaged quiescent cells
@@ -63,15 +84,15 @@ class TumorGrowthDynamics(Dynamics):
         initial_state = np.array([initial_C, initial_P, initial_Q, initial_Q_P])
 
         initial_condition = {
-            'initial_state': initial_state,
-            'initial_dose': initial_C,
+            'initial_state': initial_state, # includes C
+            'initial_dose': initial_C, 
             'sampled_params': {}
         }
 
         return initial_condition
 
 class TumorGrowthDataset(DynamicsDataset):
-    def simulate_outcome(self, initial_state, t, intervention):
+    def simulate_outcome(self, initial_state, t, intervention): 
         outcomes = self.simulate_step(initial_state, t, intervention).T
         return outcomes[1]  
 
@@ -92,6 +113,9 @@ class TumorGrowthDataset(DynamicsDataset):
 
             initial_state = initial_condition['initial_state']
             initial_dose = initial_condition['initial_dose']
+            print('initial dose:', initial_dose)
+            print('initial state:', initial_state)
+
             outcomes = self.simulate_with_confounding(initial_state, initial_dose, self.t, self.intervention)
         else:
             outcomes, initial_condition = self.data[idx]
@@ -115,7 +139,7 @@ class TumorGrowthDataset(DynamicsDataset):
     
 if __name__ == "__main__":
 
-    params = {
+    params = { # sample parameters for different patients
         'KDE': 0.1,       # Drug elimination constant
         'k_QP': 0.05,     # Rate from damaged quiescent to proliferative
         'k_PQ': 0.03,     # Rate from proliferative to quiescent
@@ -127,19 +151,23 @@ if __name__ == "__main__":
 
     dynamics = TumorGrowthDynamics(params=params)
 
-    n_instances = 100  
-    t_horizon = 10     
-    t_end = 50     
-
-    def exponential_decay(t, initial_dose=1.0):
-        half_life = 10  
-        return initial_dose * np.exp(-np.log(2) * t / half_life)
+    n_instances = 32  
+    t_horizon = 4   
+    t_end = 2
 
     dataset = TumorGrowthDataset(
         dynamics=dynamics,
         n_instances=n_instances,
-        intervention=exponential_decay,
+        intervention=damped_sin,
         t_horizon=t_horizon,
         t_end=t_end,
+        covariate_size=3,
+        treatment_size=1,
+        outcome_size=1,
         simulate_online=False
     )
+    
+  #  import pdb; pdb.set_trace()
+
+    dataset.visualize_stats()
+    dataset.visualize_trajectories()
