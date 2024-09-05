@@ -4,7 +4,7 @@ import hydra
 import lightning as L
 import rootutils
 import torch
-from lightning import LightningDataModule, LightningModule
+from lightning import LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 from functools import partial
@@ -69,6 +69,9 @@ def treat(cfg: DictConfig, model_name) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     log.info(f"Instantiating select_treatment <{cfg.treat.select_treatment._target_}>")
     select_treatment = hydra.utils.instantiate(cfg.treat.select_treatment)
+
+    if hasattr(model.net, 'on_fit_end'):
+        model.net.on_fit_end(datamodule)
 
     if cfg.get("logger"):
         log.info("Instantiating loggers...")
@@ -155,6 +158,7 @@ def treat(cfg: DictConfig, model_name) -> Tuple[Dict[str, Any], Dict[str, Any]]:
                 )
                             
             # Perform treatment selection
+            # mu, var - mean and variance of outcomes corr. to selected treatment
             mu, var, treatments, losses = select_treatment(
                 model=model,
                 instance=copy.deepcopy(instance),

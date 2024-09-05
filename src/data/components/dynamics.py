@@ -185,6 +185,25 @@ class DynamicsDataset(Dataset):
             n_treatments=5
             ):
 
+        """
+        Args:
+            initial_state (array-like): The initial state of the system.
+            initial_dose (float): The initial treatment dose.
+            t (array-like): A sequence of time points over which the 
+                simulation runs.
+            intervention (callable): A function that takes time and dose as 
+                inputs 
+                and returns the effect of the intervention at each time point.
+            n_treatments (int, optional): The number of treatment cycles into 
+                which the time sequence `t` is split. Defaults to 5.
+
+        Returns:
+            np.ndarray: A 2D array where each row corresponds to a time step 
+            and each column corresponds to either the system state or the 
+            applied treatment over time. The final history also includes added 
+            noise.
+        """
+
         history = []
         treatment_dose = initial_dose
         for t_split in np.array_split(t, n_treatments):

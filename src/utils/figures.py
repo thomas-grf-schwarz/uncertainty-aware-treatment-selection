@@ -155,7 +155,7 @@ def plot_trajectories_with_uncertainty(
             treatments=treatments,
         )
         mus.append(mu)
-        vars.append(var)       
+        vars.append(var)
 
     mus = torch.stack(mus, dim=0)
     vars = torch.stack(vars, dim=0)
