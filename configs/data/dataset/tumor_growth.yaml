@@ -1,7 +1,7 @@
 _target_: src.data.components.tumor_growth_dynamics.TumorGrowthDataset
 n_instances: ???
 intervention:
-  _target_: src.data.components.tumor_growth_dynamics.intervention_function
+  _target_: src.data.components.tumor_growth_dynamics.damped_sin
   _partial_: true
 simulate_online: false
 t_horizon: 10
@@ -18,6 +18,6 @@ dynamics:
     lambda_Q: 0.05 
     delta_Q: 0.01  
     K: 50           
-covariate_size: 3
+covariate_size: 2
 treatment_size: 1
 outcome_size: 1
