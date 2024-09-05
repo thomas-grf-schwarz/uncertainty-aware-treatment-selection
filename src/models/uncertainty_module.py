@@ -138,6 +138,10 @@ class UncertaintyModule(LightningModule):
                 },
             }
         return {"optimizer": optimizer}
+    
+    def on_fit_end(self):
+        if hasattr(self.net, 'on_fit_end'):
+            self.net.on_fit_end(self.trainer.datamodule)
 
 
 if __name__ == "__main__":

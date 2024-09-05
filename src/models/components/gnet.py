@@ -1,13 +1,97 @@
 import torch
 from torch import nn
 from src.utils.transforms import (
-    LayerNorm1D, 
-    FixedAllBackNorm,
-    FixedTransferableNorm,
-    FixedLayerNorm1D,
+    ReversibleNorm,
+    LayerNorm1D
     )
 
+from src.utils.rnn import permute_rnn_style
+
 from src.utils.loss import HSICLoss
+
+
+class FeaturewiseRNN(nn.Module):
+
+    def __init__(
+            self,
+            input_size=10,
+            num_layers=2
+            ):
+        super().__init__()
+        
+        self.input_size = input_size
+        self.num_layers = num_layers
+
+        self.rnn = nn.GRU(
+            input_size=input_size,
+            hidden_size=input_size,
+            num_layers=num_layers
+            )
+
+    def init_hidden(self, batch_size):
+        return torch.zeros(self.num_layers, batch_size, self.input_size)
+
+    @permute_rnn_style
+    def forward(self, x):
+        return self.rnn(x, self.init_hidden(x.shape[0]))
+
+
+class MultilayerVariationalGRU(nn.Module):
+    def __init__(
+            self,
+            input_size,
+            hidden_size,
+            num_layers=2,
+            p_dropout=0.2
+            ):
+        super().__init__()
+
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+
+        # Create a list of GRUCells for each layer
+        self.grus = nn.ModuleList([
+            nn.GRUCell(input_size if i == 0 else hidden_size, hidden_size) 
+            for i in range(num_layers)])
+        
+        self.p_dropout = p_dropout
+        self.recurrent_dropout = nn.ModuleList([
+            nn.Dropout(p=p_dropout) 
+            for _ in range(num_layers)])
+        self.input_dropout = nn.Dropout(p=p_dropout)
+        self.output_dropout = nn.Dropout(p=p_dropout)
+
+    def init_hidden(self, batch_size):
+        # Return a tensor for each layer's hidden state
+        return [torch.zeros(batch_size, self.hidden_size) 
+                for _ in range(self.num_layers)]
+
+    def forward_step(self, x, hidden, layer_idx):
+        # No in-place operations here
+        x = self.input_dropout(x) if layer_idx == 0 else x  # Only apply input dropout on the first layer's input
+        hidden_next = self.grus[layer_idx](x, hidden[layer_idx])
+        hidden_next = self.recurrent_dropout[layer_idx](hidden_next)
+        return hidden_next
+
+    def multilayer_forward(self, x, hidden):
+        B, L, C = x.shape
+        out = []
+        # Iterate over each time step
+        for l in range(L):
+            h_input = x[:, l, :]
+            new_hidden = []
+            # Iterate over each layer
+            for layer_idx in range(self.num_layers):
+                h_input = self.forward_step(h_input, hidden, layer_idx)
+                new_hidden.append(h_input)
+            out.append(self.output_dropout(h_input))  # Apply output dropout after the last layer
+            hidden = new_hidden  # Update hidden states for the next time step
+        return torch.stack(out, dim=-2), hidden
+
+    def forward(self, x, hidden):
+        # Call the multilayer_forward method
+        return self.multilayer_forward(x, hidden)
 
 
 class VariationalGRU(nn.Module):
@@ -74,40 +158,34 @@ class GNet(nn.Module):
 
         # Decoder components
         input_size = covariate_size + treatment_size + outcome_size
-        self.decoder_rnn = VariationalGRU(
+        self.decoder_rnn = MultilayerVariationalGRU(
             input_size=input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
             p_dropout=p_dropout
             )
-        # self.out = nn.Linear(
-        #     hidden_size,
-        #     outcome_size
-        #     )
+        
+        self.out = nn.Linear(
+            hidden_size,
+            outcome_size + covariate_size
+            )
+        self.head = FeaturewiseRNN()
 
         # Normalization
-        self.norm_treatments = FixedTransferableNorm(
-            normalized_shape=(1, treatment_size,), 
-            dim_to_normalize=-2,
-        )
-
-        self.norm_outcomes = FixedAllBackNorm(
-            normalized_shape=(1, outcome_size,), 
-            dim_to_normalize=-2,
-        )
-
-        self.norm_covariates = FixedLayerNorm1D(
-            normalized_shape=(1, covariate_size,), 
-            dim_to_normalize=-2,
-        )
-
-        self.norm_out = LayerNorm1D(
-            normalized_shape=(1, outcome_size,), 
+        self.norm_treatments = ReversibleNorm(
+            normalized_shape=(1, treatment_size,),
             dim_to_normalize=-2
             )
-        
+        self.norm_outcomes = ReversibleNorm(
+            normalized_shape=(1, outcome_size,),
+            dim_to_normalize=-2
+            )
+        self.norm_covariates = ReversibleNorm(
+            normalized_shape=(1, covariate_size,),
+            dim_to_normalize=-2
+        )
+
         # Losses
-        self.balancing_criterion = HSICLoss()
         self.outcome_loss = torch.nn.MSELoss()
         self.alpha = alpha
 
@@ -126,12 +204,8 @@ class GNet(nn.Module):
             treatments,
             outcomes=None
             ):
-
-        return torch.cat([
-            covariate_history,
-            treatment_history,
-            outcome_history],
-            dim=-1)
+        
+        return treatment_history, outcome_history, covariate_history
 
     def prepare_output(self, output_seq):
         outcomes, treatments = output_seq.split(
@@ -151,11 +225,10 @@ class GNet(nn.Module):
             treatments,
             outcomes
             ):
-        
+                
         B, L, _ = treatments.shape
-       
-        pred_outcomes = []
 
+        pred_outcomes = []
         for l in range(L):
 
             residual_outcomes, residual_covariates = self.sample_residual_batch(l, B)
@@ -168,7 +241,7 @@ class GNet(nn.Module):
     
             covariate_history = torch.cat(
                 [covariate_history[:, 1:, :],
-                 pred_covariates_out[:, -1:, :] + residual_covariates],
+                 pred_covariates_out[:, -1:, :] + residual_covariates[:, None, :]],
                 dim=-2)
 
             treatment_history = torch.cat(
@@ -178,17 +251,15 @@ class GNet(nn.Module):
 
             outcome_history = torch.cat(
                 [outcome_history[:, 1:, :],
-                 pred_outcomes_out[:, -1:, :] + residual_outcomes],
+                 pred_outcomes_out[:, -1:, :] + residual_outcomes[:, None, :]],
                 dim=-2)
 
-            pred_outcomes.append(pred_outcomes_out)
-
-        pred_outcomes = torch.stack(pred_outcomes, dim=-2)
-        
-        return pred_outcomes.mean(0)
+            pred_outcomes.append(pred_outcomes_out[:, -1:, :])
+        pred_outcomes = torch.cat(pred_outcomes, dim=-2)
+        return pred_outcomes,
 
     def sample_residual(self, l):
-        assert hasattr(self, 'holdout_residuals')
+        assert len(self.holdout_residuals) > 0
         idx = torch.randint(high=len(self.holdout_residuals), size=(1,))
         residual_outcomes, residual_covariates = self.holdout_residuals[idx]
         return residual_outcomes[l], residual_covariates[l]
@@ -197,7 +268,7 @@ class GNet(nn.Module):
         residual_outcomes, residual_covariates = list(
             zip(*[self.sample_residual(l) for _ in range(n)])
             )
-        return torch.stack(residual_outcomes), torch.stack(residual_covariates)
+        return torch.tensor(residual_outcomes), torch.tensor(residual_covariates)
 
     def forward(
             self,
@@ -206,7 +277,6 @@ class GNet(nn.Module):
             outcome_history,
             treatments=None,
             outcomes=None,
-            active_entries=None,
             ):
 
         treatments, outcomes, covariates = self.prepare_input(
@@ -225,14 +295,20 @@ class GNet(nn.Module):
         covariates = self.norm_covariates(covariates)
 
         # Decoder forward
-        out = self.decoder_forward(
+        out, _ = self.decoder_forward(
             input_seq=torch.cat([treatments, outcomes, covariates], dim=-1),
             encoder_hidden=self.init_hidden(B)
         )
+        out = self.out(out)
+        # out = self.head(out)
 
         # Predict both outcomes and covariates
         pred_outcomes = out[..., :self.outcome_size]
         pred_covariates = out[..., self.outcome_size:]
+
+        # Invert the normalization of the trajectories
+        pred_outcomes = self.norm_outcomes.inverse(pred_outcomes)
+        pred_covariates = self.norm_covariates.inverse(pred_covariates)
 
         return pred_outcomes, pred_covariates
 
@@ -245,6 +321,7 @@ class GNet(nn.Module):
                 - 'loss': tensor (overall loss)
                 - 'outcome_loss': tensor (MSE of outcomes)
         """
+
         pred_outcomes, pred_covariates = self.forward(
             covariate_history=batch['covariate_history'],
             treatment_history=batch['treatment_history'],
@@ -260,23 +337,24 @@ class GNet(nn.Module):
         
         covariate_loss = self.outcome_loss(
             pred_covariates[:, :-1, :],
-            batch['covariate_history'][:, 1:, :]
+            batch['covariate_history'][:, 1:, :] 
             )
 
         losses = {
-            'loss': covariate_loss + outcome_loss,
+            'loss': outcome_loss + covariate_loss,
             'outcome loss': outcome_loss,
         }
 
         return losses
 
-    def on_fit_end(self) -> None:
+    @torch.inference_mode()
+    def on_fit_end(self, datamodule):
 
-        # adapted from https://github.com/konstantinhess/G_transformer/blob/main/src/models/gnet.py       
+        # adapted from https://github.com/konstantinhess/G_transformer/blob/main/src/models/gnet.py
 
         self.eval()
         self.holdout_residuals = []
-        for batch in self.trainer.datamodule.val_dataloader:
+        for batch in datamodule.val_dataloader():
 
             pred_outcomes, pred_covariates = self.forward(
                 covariate_history=batch['covariate_history'],
@@ -292,4 +370,7 @@ class GNet(nn.Module):
                     (batch['outcome_history'] - pred_outcomes).tolist(),
                     (batch['covariate_history'] - pred_covariates).tolist()
                 )
-            )
+            )    
+
+if __name__ == 'main':
+    gnet = GNet(1, 1, 1, 10)
