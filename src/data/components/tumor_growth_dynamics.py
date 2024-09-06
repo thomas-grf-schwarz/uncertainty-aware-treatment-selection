@@ -1,12 +1,9 @@
 import numpy as np
 import torch
 
-import numpy as np
-import torch
-
 import sys
-import os
-sys.path.append(os.path.abspath('/Users/cecilia.casolo/Documents/GitHub/uncertainty-aware-treatment-selection/'))
+
+sys.path.append('./')
 from src.data.components.dynamics import Dynamics, DynamicsDataset
 
 
@@ -91,12 +88,19 @@ class TumorGrowthDynamics(Dynamics):
 
         return initial_condition
 
+
 class TumorGrowthDataset(DynamicsDataset):
-    def simulate_outcome(self, initial_state, t, intervention): 
-        outcomes = self.simulate_step(initial_state, t, intervention).T
+    def simulate_outcome(self, initial_state, treatment_dose, t, intervention): 
+        outcomes = self.simulate_step(
+            initial_state=initial_state, 
+            treatment_dose=treatment_dose, 
+            t=t, 
+            intervention=intervention
+            ).T
         return outcomes[1]  
 
     def to_state(self, outcome, covariate):
+
         C = covariate[:, 0].squeeze()
         P = outcome.squeeze()
         Q = covariate[:, 1].squeeze()
@@ -116,17 +120,23 @@ class TumorGrowthDataset(DynamicsDataset):
             print('initial dose:', initial_dose)
             print('initial state:', initial_state)
 
-            outcomes = self.simulate_with_confounding(initial_state, initial_dose, self.t, self.intervention)
+            state = self.simulate_with_confounding(initial_state, initial_dose, self.t, self.intervention)
         else:
-            outcomes, initial_condition = self.data[idx]
-            outcomes = np.stack(outcomes, axis=0)
+            *state, initial_condition = self.data[idx]
+            state = np.stack(state, axis=0)
 
         instance = {
-            'outcome_history': outcomes[1, :-self.t_horizon, None],  # P history
-            'treatment_history': outcomes[0, :-self.t_horizon, None],  # C history
-            'covariate_history': outcomes[2:-1, :-self.t_horizon].T,  # Q and Q_P history
-            'outcomes': outcomes[1, -self.t_horizon:, None],  # P outcomes
-            'treatments': outcomes[0, -self.t_horizon:, None]  # C treatments
+            'outcome_history': state[1, :-self.t_horizon, None],  # P history
+            'treatment_history': state[0, :-self.t_horizon, None],  # treatments
+            'covariate_history': np.concatenate(
+                    [
+                        state[None, 0, :-self.t_horizon],
+                        state[None, 2, :-self.t_horizon],
+                        state[None, 3, :-self.t_horizon],
+                    ]
+                ).T,  # C, Q and Q_P history
+            'outcomes': state[1, -self.t_horizon:, None],  # P outcomes
+            'treatments': state[0, -self.t_horizon:, None]  # treatments
         }
 
         for k, data in instance.items():
@@ -152,8 +162,8 @@ if __name__ == "__main__":
     dynamics = TumorGrowthDynamics(params=params)
 
     n_instances = 32  
-    t_horizon = 4   
-    t_end = 2
+    t_horizon = 10   
+    t_end = 20
 
     dataset = TumorGrowthDataset(
         dynamics=dynamics,
@@ -166,8 +176,8 @@ if __name__ == "__main__":
         outcome_size=1,
         simulate_online=False
     )
-    
-  #  import pdb; pdb.set_trace()
 
     dataset.visualize_stats()
+    import pdb; pdb.set_trace()
     dataset.visualize_trajectories()
+    import pdb; pdb.set_trace()

@@ -16,7 +16,6 @@ trainer:
   gradient_clip_val: 0.5
 
 model:
-model:
   _target_: src.models.sampled_uncertainty_module.SampledUncertaintyModule
   optimizer:
     lr: 0.002

@@ -1,7 +1,7 @@
 _target_: src.data.components.tumor_growth_dynamics.TumorGrowthDataset
 n_instances: ???
 intervention:
-  _target_: src.data.components.tumor_growth_dynamics.intervention_function
+  _target_: src.data.components.tumor_growth_dynamics.damped_sin
   _partial_: true
 simulate_online: false
 t_horizon: 10
