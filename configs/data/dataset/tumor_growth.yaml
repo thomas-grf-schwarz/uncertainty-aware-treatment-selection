@@ -18,6 +18,6 @@ dynamics:
     lambda_Q: 0.05 
     delta_Q: 0.01  
     K: 50           
-covariate_size: 2
+covariate_size: 3
 treatment_size: 1
 outcome_size: 1

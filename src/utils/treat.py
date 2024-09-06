@@ -235,7 +235,10 @@ def simulate_treatments(
 ):
 
     def treatment_fn(tx, dose):
-        return treatments[int(tx)]
+        if int(tx) < len(treatments):
+            return treatments[int(tx)]
+        else:
+            return treatments[-1]
 
     outcome = simulate_outcome(
         initial_state=initial_state,
