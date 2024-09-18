@@ -115,7 +115,7 @@ smmap==5.0.1
 SQLAlchemy==2.0.30
 stack-data @ file:///home/conda/feedstock_root/build_artifacts/stack_data_1669632077133/work
 stevedore==5.2.0
-sympy==1.12
+sympy==1.13.3
 tenacity==8.2.3
 threadpoolctl==3.5.0
 torch==2.3.0
